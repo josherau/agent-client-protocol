@@ -72,7 +72,14 @@ Format as JSON:
 
 def get_client() -> anthropic.Anthropic:
     """Create an Anthropic client."""
-    return anthropic.Anthropic()
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise click.ClickException(
+            "ANTHROPIC_API_KEY environment variable is required.\n"
+            "Set it with: export ANTHROPIC_API_KEY='your-key-here'\n"
+            "Get a key at: https://console.anthropic.com/settings/keys"
+        )
+    return anthropic.Anthropic(api_key=api_key)
 
 
 def research_competitors(product: str, industry: str) -> dict:
