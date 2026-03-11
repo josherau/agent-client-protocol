@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timedelta
 
 import httpx
@@ -14,14 +15,33 @@ logger = logging.getLogger(__name__)
 
 AD_LIBRARY_BASE_URL = "https://graph.facebook.com/{version}/ads_archive"
 
+# Default fields to request from the Ad Library API
+AD_LIBRARY_FIELDS = [
+    "id",
+    "ad_creative_bodies",
+    "ad_creative_link_captions",
+    "ad_creative_link_titles",
+    "ad_delivery_start_time",
+    "ad_delivery_stop_time",
+    "page_id",
+    "page_name",
+    "publisher_platforms",
+    "estimated_audience_size",
+    "impressions",
+    "spend",
+    "languages",
+    "currency",
+]
+
 
 class AdLibraryScraper:
     """Scrapes competitor ads from the Meta Ad Library API."""
 
-    def __init__(self, config: MetaAdsConfig) -> None:
+    def __init__(self, config: MetaAdsConfig, max_retries: int = 3) -> None:
         self.config = config
         self.base_url = AD_LIBRARY_BASE_URL.format(version=config.api_version)
         self.client = httpx.Client(timeout=30.0)
+        self.max_retries = max_retries
 
     def search_by_page(
         self,
@@ -111,21 +131,8 @@ class AdLibraryScraper:
         params = {
             "access_token": self.config.access_token,
             "ad_reached_countries": f'["{country}"]',
-            "ad_type": "POLITICAL_AND_ISSUE_ADS",  # or ALL for business ads
-            "fields": ",".join([
-                "id",
-                "ad_creative_bodies",
-                "ad_creative_link_captions",
-                "ad_creative_link_titles",
-                "ad_delivery_start_time",
-                "ad_delivery_stop_time",
-                "page_id",
-                "page_name",
-                "publisher_platforms",
-                "estimated_audience_size",
-                "impressions",
-                "spend",
-            ]),
+            "ad_type": "ALL",
+            "fields": ",".join(AD_LIBRARY_FIELDS),
             "limit": str(min(limit, 100)),
         }
         if search_terms:
@@ -137,17 +144,13 @@ class AdLibraryScraper:
         return params
 
     def _fetch_ads(self, params: dict) -> list[CompetitorAd]:
-        """Execute the API request and parse results."""
+        """Execute the API request with retry and pagination."""
         ads: list[CompetitorAd] = []
         url = self.base_url
 
         while url:
-            try:
-                response = self.client.get(url, params=params)
-                response.raise_for_status()
-                data = response.json()
-            except httpx.HTTPError as e:
-                logger.error(f"Ad Library API request failed: {e}")
+            data = self._request_with_retry(url, params)
+            if data is None:
                 break
 
             for raw_ad in data.get("data", []):
@@ -162,11 +165,51 @@ class AdLibraryScraper:
 
         return ads
 
+    def _request_with_retry(self, url: str, params: dict) -> dict | None:
+        """Make an API request with exponential backoff on rate limits."""
+        for attempt in range(self.max_retries):
+            try:
+                response = self.client.get(url, params=params)
+
+                if response.status_code == 429:
+                    wait = 2 ** (attempt + 1)
+                    logger.warning(f"Rate limited, waiting {wait}s (attempt {attempt + 1})")
+                    time.sleep(wait)
+                    continue
+
+                response.raise_for_status()
+                return response.json()
+
+            except httpx.HTTPStatusError as e:
+                error_data = {}
+                try:
+                    error_data = e.response.json()
+                except Exception:
+                    pass
+                error_msg = error_data.get("error", {}).get("message", str(e))
+                logger.error(f"Ad Library API error: {error_msg}")
+                return None
+
+            except httpx.HTTPError as e:
+                if attempt < self.max_retries - 1:
+                    wait = 2 ** (attempt + 1)
+                    logger.warning(f"Request failed, retrying in {wait}s: {e}")
+                    time.sleep(wait)
+                else:
+                    logger.error(f"Ad Library API request failed after {self.max_retries} attempts: {e}")
+                    return None
+
+        return None
+
     def _parse_ad(self, raw: dict) -> CompetitorAd | None:
         """Parse a raw API response into a CompetitorAd."""
         try:
             bodies = raw.get("ad_creative_bodies", [])
             ad_text = bodies[0] if bodies else ""
+
+            # Skip ads with no text content
+            if not ad_text.strip():
+                return None
 
             titles = raw.get("ad_creative_link_titles", [])
             cta_text = titles[0] if titles else ""
@@ -176,12 +219,21 @@ class AdLibraryScraper:
             longevity = 0
             if start_time:
                 started = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
-                longevity = (datetime.now(started.tzinfo) - started).days
+                longevity = max(0, (datetime.now(started.tzinfo) - started).days)
 
             stop_time = raw.get("ad_delivery_stop_time")
             is_active = stop_time is None
 
             platforms = raw.get("publisher_platforms", [])
+
+            # Estimate reach from audience size if available
+            audience = raw.get("estimated_audience_size", {})
+            estimated_reach = ""
+            if isinstance(audience, dict) and audience:
+                lower = audience.get("lower_bound", "")
+                upper = audience.get("upper_bound", "")
+                if lower and upper:
+                    estimated_reach = f"{lower}-{upper}"
 
             return CompetitorAd(
                 ad_id=raw.get("id", ""),
@@ -194,9 +246,10 @@ class AdLibraryScraper:
                 is_active=is_active,
                 platforms=platforms,
                 longevity_days=longevity,
+                estimated_reach=estimated_reach,
             )
         except Exception as e:
-            logger.warning(f"Failed to parse ad: {e}")
+            logger.warning(f"Failed to parse ad {raw.get('id', '?')}: {e}")
             return None
 
     def close(self) -> None:
