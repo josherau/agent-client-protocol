@@ -64,17 +64,18 @@ def cli(ctx: click.Context, verbose: bool) -> None:
     "--competitor-pages",
     "-c",
     multiple=True,
-    required=True,
-    help="Competitor Facebook page IDs to research",
+    help="Competitor Facebook page IDs/slugs (defaults to configured competitors)",
 )
-@click.option("--keyword", "-k", default=None, help="Search keyword for Ad Library")
+@click.option("--keyword", "-k", multiple=True, help="Search keywords for Ad Library")
+@click.option("--use-config-keywords", is_flag=True, help="Also search configured keywords")
 @click.option("--limit", "-l", default=50, help="Max ads per competitor")
 @click.option("--output", "-o", default="research_results.json", help="Output file")
 @click.pass_context
 def research(
     ctx: click.Context,
     competitor_pages: tuple[str, ...],
-    keyword: str | None,
+    keyword: tuple[str, ...],
+    use_config_keywords: bool,
     limit: int,
     output: str,
 ) -> None:
@@ -82,6 +83,20 @@ def research(
     config: AppConfig = ctx.obj["config"]
 
     console.print(Panel("[bold blue]Phase 1: Competitor Research[/bold blue]"))
+
+    # Use configured competitors if none specified on CLI
+    pages = list(competitor_pages)
+    if not pages:
+        pages = [c.page_slug for c in config.competitors.competitors if c.page_slug]
+        console.print(
+            f"Using {len(pages)} configured competitors: "
+            + ", ".join(c.name for c in config.competitors.competitors if c.page_slug)
+        )
+
+    # Collect keywords from CLI args and/or config
+    keywords = list(keyword)
+    if use_config_keywords:
+        keywords.extend(config.competitors.search_keywords)
 
     scraper = AdLibraryScraper(config.meta)
     analyzer = CompetitorAnalyzer()
@@ -92,11 +107,11 @@ def research(
     ) as progress:
         # Scrape competitor ads
         task = progress.add_task("Scraping competitor ads...", total=None)
-        all_ads = scraper.search_competitors(list(competitor_pages), limit)
+        all_ads = scraper.search_competitors(pages, limit)
 
-        if keyword:
-            progress.update(task, description=f"Searching keyword: {keyword}")
-            keyword_ads = scraper.search_by_keyword(keyword, limit=limit)
+        for kw in keywords:
+            progress.update(task, description=f"Searching keyword: {kw}")
+            keyword_ads = scraper.search_by_keyword(kw, limit=limit)
             all_ads.extend(keyword_ads)
 
         progress.update(task, description="Analyzing patterns...")

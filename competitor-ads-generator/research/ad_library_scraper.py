@@ -58,14 +58,47 @@ class AdLibraryScraper:
         competitor_page_ids: list[str],
         limit_per_competitor: int = 50,
     ) -> list[CompetitorAd]:
-        """Search ads for multiple competitors and combine results."""
+        """Search ads for multiple competitors and combine results.
+
+        Accepts numerical page IDs or page slugs. For slugs, attempts
+        a Graph API lookup to resolve the numerical ID first.
+        """
         all_ads: list[CompetitorAd] = []
         for page_id in competitor_page_ids:
-            logger.info(f"Fetching ads for competitor page: {page_id}")
-            ads = self.search_by_page(page_id, limit=limit_per_competitor)
+            if not page_id:
+                continue
+            resolved_id = self._resolve_page_id(page_id)
+            logger.info(f"Fetching ads for competitor page: {page_id} (ID: {resolved_id})")
+            ads = self.search_by_page(resolved_id, limit=limit_per_competitor)
             all_ads.extend(ads)
             logger.info(f"  Found {len(ads)} ads")
         return all_ads
+
+    def _resolve_page_id(self, page_id_or_slug: str) -> str:
+        """Resolve a page slug to its numerical ID via Graph API.
+
+        If already numerical, returns as-is. If lookup fails, returns
+        the original value (the Ad Library API may still accept it).
+        """
+        if page_id_or_slug.isdigit():
+            return page_id_or_slug
+        try:
+            url = f"https://graph.facebook.com/{self.config.api_version}/{page_id_or_slug}"
+            response = self.client.get(
+                url,
+                params={"access_token": self.config.access_token, "fields": "id,name"},
+            )
+            response.raise_for_status()
+            data = response.json()
+            resolved = data.get("id", page_id_or_slug)
+            logger.info(f"Resolved page slug '{page_id_or_slug}' -> ID {resolved}")
+            return resolved
+        except httpx.HTTPError as e:
+            logger.warning(
+                f"Could not resolve page slug '{page_id_or_slug}': {e}. "
+                "Using slug directly."
+            )
+            return page_id_or_slug
 
     def _build_params(
         self,
