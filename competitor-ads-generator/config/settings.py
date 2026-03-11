@@ -4,6 +4,13 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Load .env from the competitor-ads-generator directory
+_env_path = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(_env_path)
 
 
 @dataclass
