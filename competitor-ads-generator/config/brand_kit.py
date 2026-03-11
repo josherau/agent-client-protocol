@@ -7,14 +7,14 @@ from dataclasses import dataclass, field
 
 @dataclass
 class BrandColors:
-    """Brand color palette — Victory Performance military/athletic aesthetic."""
+    """Brand color palette — Victory Performance navy/gold/white."""
 
-    primary: str = "#1B1B1B"       # Deep black — authority, strength
+    primary: str = "#0A1F3F"       # Navy — authority, trust, discipline
     secondary: str = "#C8A951"     # Gold — victory, excellence, premium
-    accent: str = "#8B0000"        # Dark red — intensity, competition, warrior spirit
+    accent: str = "#FFFFFF"        # White — clean, clarity, precision
     background: str = "#FFFFFF"
-    text_dark: str = "#1B1B1B"
-    text_light: str = "#F5F5F5"
+    text_dark: str = "#0A1F3F"
+    text_light: str = "#FFFFFF"
 
 
 @dataclass
