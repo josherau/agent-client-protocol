@@ -69,7 +69,7 @@ class CreativeUploader:
                     "message": creative.primary_text,
                     "name": creative.headline,
                     "description": creative.description,
-                    "link": f"https://yourcompany.com",  # Set your landing page
+                    "link": "https://victoryperformance.co",
                     "call_to_action": {
                         "type": self._map_cta(creative.cta),
                     },
@@ -92,7 +92,7 @@ class CreativeUploader:
                 attachment = {
                     "name": card.headline,
                     "description": card.description,
-                    "link": card.link_url or "https://yourcompany.com",
+                    "link": card.link_url or "https://victoryperformance.co",
                     "call_to_action": {
                         "type": self._map_cta(creative.cta),
                     },
@@ -109,7 +109,7 @@ class CreativeUploader:
                 "link_data": {
                     "message": creative.primary_text,
                     "child_attachments": child_attachments,
-                    "link": "https://yourcompany.com",
+                    "link": "https://victoryperformance.co",
                 },
             },
         }
@@ -137,5 +137,11 @@ class CreativeUploader:
             "try free": "SIGN_UP",
             "see how it works": "LEARN_MORE",
             "start your trial": "SIGN_UP",
+            # Victory Performance custom CTAs
+            "unlock your mental edge": "LEARN_MORE",
+            "start winning now": "SIGN_UP",
+            "book your free session": "BOOK_NOW",
+            "get your competitive edge": "LEARN_MORE",
+            "train your mind to win": "LEARN_MORE",
         }
         return mapping.get(cta_text.lower(), "LEARN_MORE")
